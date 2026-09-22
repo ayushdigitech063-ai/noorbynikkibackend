@@ -100,7 +100,7 @@ const getUserProfile = async (userId) => {
   return user;
 };
 
-// Export pure functions directly
+
 module.exports = {
   registerUser,
   loginUser,
