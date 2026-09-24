@@ -3,35 +3,65 @@ const Product = require('../models/product.model');
 
 
 const getAllProducts = async (queryParams) => {
-  const { category, tag, search, sort, page = 1, limit = 12 } = queryParams;
-
+  const {
+    category,
+    tag,
+    search,
+    sort,
+    size,
+    minPrice,
+    maxPrice,
+    page = 1,
+    limit = 12,
+  } = queryParams;
 
   const query = {};
 
+  // 1. Category Filter (exact match)
   if (category) {
     query.category = category;
   }
 
+  // 2. Tag Filter
   if (tag && tag !== 'none') {
     query.tag = tag;
   }
 
- 
+  // 3. Search Filter (Safe Regex: Partial & Case-Insensitive)
   if (search) {
-    query.$text = { $search: search };
+    query.$or = [
+      { name: { $regex: search.trim(), $options: 'i' } },
+      { description: { $regex: search.trim(), $options: 'i' } },
+    ];
   }
 
+  // 4. Size Filter (Agar user specific size dhund raha ho)
+  if (size) {
+    query.sizes = {
+      $elemMatch: {
+        size: size.toUpperCase(),
+        stock: { $gt: 0 }, // sirf in-stock size dikhaye
+      },
+    };
+  }
 
-  let sortOption = { createdAt: -1 }; // Default: Newest first
+  // 5. Price Range Filter (Next.js filter sidebar ke liye)
+  if (minPrice || maxPrice) {
+    query.price = {};
+    if (minPrice) query.price.$gte = Number(minPrice);
+    if (maxPrice) query.price.$lte = Number(maxPrice);
+  }
+
+  // 6. Sorting Options
+  let sortOption = { createdAt: -1 }; // default newest
   if (sort === 'price-low') sortOption = { price: 1 };
   if (sort === 'price-high') sortOption = { price: -1 };
   if (sort === 'oldest') sortOption = { createdAt: 1 };
 
-
+  // 7. Pagination
   const pageNum = Math.max(1, parseInt(page, 10));
   const pageSize = Math.max(1, parseInt(limit, 10));
   const skip = (pageNum - 1) * pageSize;
-
 
   const [products, total] = await Promise.all([
     Product.find(query)
