@@ -1,136 +1,254 @@
-// services/product.services.js
+const mongoose = require('mongoose');
 const Product = require('../models/product.model');
+const Category = require('../models/category.model');
+const { deleteFromCloudinary } = require('../config/cloudinary');
 
+// Helper: Escape special characters for safe search
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const getAllProducts = async (queryParams) => {
+// 1. Master Query Handler (Get Products with Filters, Search, Sort & Pagination)
+const getProducts = async (queryParams) => {
   const {
     category,
-    tag,
     search,
-    sort,
     size,
+    inStock,
+    color,      
+    fabric,
     minPrice,
     maxPrice,
+    isFeatured,
+    isFestivalOffer,
+    sort,
     page = 1,
-    limit = 12,
+    limit = 20,
   } = queryParams;
 
-  const query = {};
+  const conditions = [];
 
-  // 1. Category Filter (exact match)
+ 
   if (category) {
-    query.category = category;
+    if (mongoose.Types.ObjectId.isValid(category)) {
+      conditions.push({ category: new mongoose.Types.ObjectId(category) });
+    } else {
+      const catDoc = await Category.findOne({ slug: category.toLowerCase().trim() }).select('_id');
+      if (catDoc) {
+        conditions.push({ category: catDoc._id });
+      } else {
+        return { total: 0, page: Number(page), pages: 0, data: [] };
+      }
+    }
   }
 
-  // 2. Tag Filter
-  if (tag && tag !== 'none') {
-    query.tag = tag;
+ 
+  if (color && color.trim()) {
+    conditions.push({ 
+      color: { $regex: new RegExp(`^${escapeRegex(color.trim())}$`, 'i') } 
+    });
   }
 
-  // 3. Search Filter (Safe Regex: Partial & Case-Insensitive)
-  if (search) {
-    query.$or = [
-      { name: { $regex: search.trim(), $options: 'i' } },
-      { description: { $regex: search.trim(), $options: 'i' } },
-    ];
+  if (fabric && fabric.trim()) {
+    conditions.push({ 
+      fabric: { $regex: new RegExp(`^${escapeRegex(fabric.trim())}$`, 'i') } 
+    });
   }
 
-  // 4. Size Filter (Agar user specific size dhund raha ho)
+ 
+  if (search && search.trim()) {
+    // String ko space ke basis par todte hain: "white anarkali" -> ["white", "anarkali"]
+    const terms = search.trim().split(/\s+/).filter(Boolean);
+
+    // Har single word ke liye check
+    const termConditions = await Promise.all(
+      terms.map(async (term) => {
+        const regexPattern = { $regex: escapeRegex(term),$options: 'i' };
+
+        // Check if this term matches any category name
+        const matchedCategories = await Category.find({ name: regexPattern }).select('_id');
+        const categoryIds = matchedCategories.map((c) => c._id);
+
+        return {
+          $or: [
+            { title: regexPattern },
+            { description: regexPattern },
+            { fabric: regexPattern },
+            { color: regexPattern },
+            { tags: regexPattern },
+            { category: { $in: categoryIds } },
+          ],
+        };
+      })
+    );
+
+   
+    conditions.push({ $and: termConditions });
+  }
+  // Filter: Size variant availability
   if (size) {
-    query.sizes = {
-      $elemMatch: {
-        size: size.toUpperCase(),
-        stock: { $gt: 0 }, // sirf in-stock size dikhaye
+    conditions.push({
+      sizes: {
+        $elemMatch: {
+          size: size.toUpperCase().trim(),
+          stock: { $gt: 0 },
+        },
       },
-    };
+    });
   }
 
-  // 5. Price Range Filter (Next.js filter sidebar ke liye)
-  if (minPrice || maxPrice) {
-    query.price = {};
-    if (minPrice) query.price.$gte = Number(minPrice);
-    if (maxPrice) query.price.$lte = Number(maxPrice);
+  // Filter: Overall Stock
+  if (inStock === 'true' || inStock === true) {
+    conditions.push({ totalStock: { $gt: 0 } });
   }
 
-  // 6. Sorting Options
-  let sortOption = { createdAt: -1 }; // default newest
-  if (sort === 'price-low') sortOption = { price: 1 };
-  if (sort === 'price-high') sortOption = { price: -1 };
-  if (sort === 'oldest') sortOption = { createdAt: 1 };
+  // Filter: Price Range
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    const priceFilter = {};
+    if (minPrice !== undefined) priceFilter.$gte = Number(minPrice);
+    if (maxPrice !== undefined) priceFilter.$lte = Number(maxPrice);
+    conditions.push({ price: priceFilter });
+  }
 
-  // 7. Pagination
-  const pageNum = Math.max(1, parseInt(page, 10));
-  const pageSize = Math.max(1, parseInt(limit, 10));
-  const skip = (pageNum - 1) * pageSize;
+ 
+  if (isFeatured !== undefined) {
+    conditions.push({ isFeatured: isFeatured === 'true' || isFeatured === true });
+  }
+  if (isFestivalOffer !== undefined) {
+    conditions.push({ isFestivalOffer: isFestivalOffer === 'true' || isFestivalOffer === true });
+  }
 
-  const [products, total] = await Promise.all([
-    Product.find(query)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(pageSize)
-      .lean(),
+  const query = conditions.length > 0 ? { $and: conditions } : {};
+
+  // Sorting
+  let sortOptions = { createdAt: -1 };
+  if (sort === 'price-low') sortOptions = { price: 1 };
+  if (sort === 'price-high') sortOptions = { price: -1 };
+  if (sort === 'oldest') sortOptions = { createdAt: 1 };
+
+  // Pagination
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const [total, products] = await Promise.all([
     Product.countDocuments(query),
+    Product.find(query)
+      .populate('category', 'name slug')
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
   ]);
 
   return {
-    products,
-    meta: {
-      total,
-      page: pageNum,
-      limit: pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    },
+    total,
+    page: Number(page),
+    pages: Math.ceil(total / Number(limit)),
+    data: products,
   };
 };
 
 
 const getProductByIdOrSlug = async (identifier) => {
+  const isId = mongoose.Types.ObjectId.isValid(identifier);
+  const query = isId ? { _id: identifier } : { slug: identifier };
 
-  const isObjectId = identifier.match(/^[0-9a-fA-F]{24}$/);
-  const query = isObjectId ? { _id: identifier } : { slug: identifier };
+  const product = await Product.findOne(query)
+    .populate('category', 'name slug imageUrl')
+    .lean();
 
-  const product = await Product.findOne(query).lean();
   if (!product) {
     const error = new Error('Product not found');
     error.statusCode = 404;
     throw error;
   }
+
   return product;
 };
 
-
+// 3. Create Product
 const createProduct = async (productData) => {
-  return await Product.create(productData);
-};
-
-
-const updateProduct = async (id, updateData) => {
-  const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
-    new: true,
-    runValidators: true,
-  }).lean();
-
-  if (!updatedProduct) {
-    const error = new Error('Product not found to update');
+  // Validate that the category exists
+  const categoryExists = await Category.findById(productData.category);
+  if (!categoryExists) {
+    const error = new Error('Selected category does not exist');
     error.statusCode = 404;
     throw error;
   }
-  return updatedProduct;
+
+  const newProduct = new Product(productData);
+  // .save() executes pre-save hook for slug and totalStock calculation
+  await newProduct.save();
+
+  return await Product.findById(newProduct._id)
+    .populate('category', 'name slug')
+    .lean();
 };
 
+// 4. Update Product (Uses .save() to guarantee totalStock auto-recalculation)
+const updateProduct = async (id, updateData, newImages = []) => {
+  const product = await Product.findById(id);
+  if (!product) {
+    const error = new Error('Product not found');
+    error.statusCode = 404;
+    throw error;
+  }
 
+  // Validate category if updating
+  if (updateData.category && updateData.category.toString() !== product.category.toString()) {
+    const categoryExists = await Category.findById(updateData.category);
+    if (!categoryExists) {
+      const error = new Error('Category not found');
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  // Merge updated images if provided
+  if (newImages.length > 0) {
+    updateData.images = [...(product.images || []), ...newImages];
+  }
+
+  // Clean up removed images if client sent deletedImages list
+  if (updateData.deletedImages && Array.isArray(updateData.deletedImages)) {
+    for (const imgUrl of updateData.deletedImages) {
+      await deleteFromCloudinary(imgUrl);
+    }
+    updateData.images = (updateData.images || product.images).filter(
+      (img) => !updateData.deletedImages.includes(img)
+    );
+  }
+
+  // Apply updates to the Mongoose document
+  Object.assign(product, updateData);
+
+  // Calling .save() ensures pre-save hooks execute totalStock & slug changes
+  await product.save();
+
+  return await Product.findById(id)
+    .populate('category', 'name slug')
+    .lean();
+};
+
+// 5. Delete Product with Cloudinary Cleanup
 const deleteProduct = async (id) => {
-  const deletedProduct = await Product.findByIdAndDelete(id).lean();
-  if (!deletedProduct) {
-    const error = new Error('Product not found to delete');
+  const product = await Product.findById(id);
+  if (!product) {
+    const error = new Error('Product not found');
     error.statusCode = 404;
     throw error;
   }
-  return deletedProduct;
+
+  // Delete all linked images from Cloudinary
+  if (product.images && product.images.length > 0) {
+    for (const imgUrl of product.images) {
+      await deleteFromCloudinary(imgUrl);
+    }
+  }
+
+  await Product.findByIdAndDelete(id);
+  return { message: 'Product deleted successfully' };
 };
 
 module.exports = {
-  getAllProducts,
+  getProducts,
   getProductByIdOrSlug,
   createProduct,
   updateProduct,

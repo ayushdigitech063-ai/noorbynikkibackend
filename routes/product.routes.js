@@ -1,27 +1,41 @@
-  // routes/product.routes.js
-  const express = require('express');
-  const {
-    getProducts,
-    getProductDetails,
-    addProduct,
-    editProduct,
-    removeProduct,
-  } = require('../controllers/product.controller');
-  const upload = require('../middlewares/upload.middleware');
-  const { protect, authorize } = require('../middlewares/auth.middleware');
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
 
-  const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB per image
+});
 
+const productController = require('../controllers/product.controller');
+const { protect, authorize } = require('../middlewares/auth.middleware');
 
-  router.get('/', getProducts);
-  router.get('/:identifier', getProductDetails);
-    
+// Public Listing & Single Product Details
+router.get('/', productController.getProducts);
+router.get('/:identifier', productController.getProductDetails);
 
+// Admin Protected Actions
+router.post(
+  '/',
+  protect,
+  authorize('admin'),
+  upload.array('images', 5), // Up to 5 product images
+  productController.createProduct
+);
 
-  // Admin routes 
+router.put(
+  '/:id',
+  protect,
+  authorize('admin'),
+  upload.array('images', 5),
+  productController.editProduct
+);
 
-  router.post('/', protect, authorize('admin'), upload.array('images', 5), addProduct);
-  router.put('/:id', protect, authorize('admin'), upload.array('images', 5), editProduct);
-  router.delete('/:id', protect, authorize('admin'), removeProduct);
+router.delete(
+  '/:id',
+  protect,
+  authorize('admin'),
+  productController.removeProduct
+);
 
-  module.exports = router;
+module.exports = router;

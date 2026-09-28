@@ -31,7 +31,7 @@ const categorySchema = new mongoose.Schema(
 );
 
 
-categorySchema.pre('save', function (next) {
+categorySchema.pre('save', function () {
   if (this.isModified('name')) {
     this.slug = this.name
       .toLowerCase()
@@ -40,7 +40,6 @@ categorySchema.pre('save', function (next) {
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
   }
-  next();
 });
 
 module.exports = mongoose.model('Category', categorySchema);

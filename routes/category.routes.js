@@ -22,12 +22,7 @@ const { protect, authorize } = require('../middlewares/auth.middleware');
 router.get('/',getActiveCategories);
 
 
-router.get(
-  '/all',
-  protect,
-  authorize('admin'),
- getAllCategories
-);
+router.get( '/all', protect,authorize('admin'),getAllCategories);
 
 
 router.post(

@@ -51,6 +51,6 @@ const addressSchema = new mongoose.Schema(
     _id: true,
     timestamps: false
   }
-);
+);  
 
 module.exports = addressSchema;

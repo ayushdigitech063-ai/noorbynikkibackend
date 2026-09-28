@@ -1,110 +1,144 @@
-  const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
-  const productSchema = new mongoose.Schema(
-    {
-      name: {
-        type: String,
-        required: [true, 'Product name is required'],
-        trim: true,
-        maxlength: [150, 'Product name cannot exceed 150 characters'],
-      },
-      slug: {
-        type: String,
-        unique: true,
-        lowercase: true,
-        index: true,
-      },
-      description: {
-        type: String,
-        required: [true, 'Product description is required'],
-        trim: true,
-      },
-      price: {
-        type: Number,
-        required: [true, 'Price is required'],
-        min: [0, 'Price cannot be negative'],
-      },
-      discountPrice: {
-        type: Number,
-        default: 0,
-        min: [0, 'Discount price cannot be negative'],
-      },
-      category: {
-        type: String,
-        required: [true, 'Category is required'],
-        trim: true,
-        enum: {
-          values: [
-            'Anarkali Kurtis',
-            'A-Line Kurtis',
-            'Classic Kurtis',
-            'Printed Kurtis',
-            'Party Wear Kurtis',
-            'Suit Set Kurtis',
-            'Bright',
-          ],
-          message: '{VALUE} is not a valid kurti category',
-        },
-        index: true,
-      },
-      sizes: [
-         {
-           size: {
-            type: String,
-             enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'],
-              required: true,
-                 },
-             stock: {
-             type: Number,
-              required: true,
-              default: 0,
-              min: [0, 'Stock cannot be negative'],
-             },
-            },
-        ],
-      images: {
-        type: [String],
-        required: [true, 'At least one image URL is required'],
-        validate: [(arr) => arr.length > 0, 'Provide at least one image'],
-      },
-      tag: {
-        type: String,
-        enum: ['new_arrival', 'bestseller', 'summer_special', 'limited_edition', 'none'],
-        default: 'none',
-        index: true,
-      },
-      fabric: {
-        type: String,
-        default: 'Pure Cotton',
-        trim: true,
-      },
-      isFeatured: {
-        type: Boolean,
-        default: false,
-        index: true,
-      },
+
+const ALLOWED_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', 'FREE SIZE'];
+
+const productSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: [true, 'Product title is required'],
+      trim: true,
     },
-    {
-      timestamps: true, // Automatically adds createdAt and updatedAt
+    slug: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      unique: true,
+      index: true,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      required: [true, 'Product category is required'],
+      index: true,
+    },
+    price: {
+      type: Number,
+      required: [true, 'Product price is required'],
+      min: [0, 'Price must be a positive number'],
+    },
+    discountPrice: {
+      type: Number,
+      min: [0, 'Discount price must be a positive number'],
+    },
+    images: [
+      {
+        type: String,
+        required: [true, 'At least one product image is required'],
+      },
+    ],
+   
+    sizes: {
+      type: [
+        {
+          size: {
+            type: String,
+            required: [true, 'Size is required'],
+            uppercase: true,
+            trim: true,
+            enum: {
+              values: ALLOWED_SIZES,
+              message: `{VALUE} is not a valid size. Allowed values: ${ALLOWED_SIZES.join(', ')}`,
+            },
+          },
+          stock: {
+            type: Number,
+            required: [true, 'Stock for this size is required'],
+            default: 0,
+            min: [0, 'Stock cannot be negative'],
+          },
+        },
+      ],
+      validate: [
+        {
+          
+          validator: function (val) {
+            return Array.isArray(val) && val.length > 0;
+          },
+          message: 'Product must have at least one size variant',
+        },
+        {
+         
+          validator: function (val) {
+            const sizeNames = val.map((item) => item.size);
+            return sizeNames.length === new Set(sizeNames).size;
+          },
+          message: 'Duplicate sizes are not allowed for the same product',
+        },
+      ],
+    },
+    
+    totalStock: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total stock cannot be negative'],
+    },
+    fabric: {
+      type: String,
+      trim: true,
+    },
+    color: {
+      type: String,
+      trim: true,
+    },
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    isFeatured: {
+      type: Boolean,
+      default: false,
+    },
+    isFestivalOffer: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  { timestamps: true }
+);
+
+productSchema.pre('save', function () {
+ 
+  if (this.isModified('sizes') || this.isNew) {
+    if (this.sizes && this.sizes.length > 0) {
+      this.totalStock = this.sizes.reduce(
+        (sum, item) => sum + (Number(item.stock) || 0),
+        0
+      );
+    } else {
+      this.totalStock = 0;
     }
-  );
+  }
 
+  // 2. Slug generation
+  if (this.isModified('title')) {
+    const baseSlug = this.title
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
 
-  productSchema.pre('save', function () {
-  if (this.isModified('name')) {
-    this.slug =
-      this.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '') +
-      '-' +
-      Date.now();
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    this.slug = `${baseSlug}-${randomSuffix}`;
   }
 });
 
-
-  productSchema.index({ category: 1, price: 1 });
-  productSchema.index({ tag: 1, createdAt: -1 });
-  productSchema.index({ name: 'text', description: 'text' });
-
-  module.exports = mongoose.model('Product', productSchema);
+module.exports = mongoose.model('Product', productSchema);
