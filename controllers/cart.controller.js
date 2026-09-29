@@ -1,10 +1,13 @@
-const cartService = require("../services/cart.services");
+const cartService = require('../services/cart.services');
 
-const getUserId = (req) => req.user?._id || req.user?.id || req.user?.userId;
+const getAuthUserId = (req) => req.user?._id || req.user?.id || req.user?.userId;
 
-exports.getCart = async (req, res, next) => {
+exports.getCart = async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
 
     const cart = await cartService.getCartByUserId(userId);
     return res.status(200).json({
@@ -12,100 +15,113 @@ exports.getCart = async (req, res, next) => {
       data: cart,
     });
   } catch (error) {
-    next(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to fetch cart',
+    });
   }
 };
 
-exports.addToCart = async (req, res, next) => {
+exports.addItemToCart = async (req, res) => {
   try {
-    const { productId, size, quantity } = req.body;
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
 
+    const { productId, size, quantity } = req.body;
     if (!productId || !size) {
       return res.status(400).json({
         success: false,
-        message: "productId and size are required fields",
+        message: 'Product ID and Size are required',
       });
     }
 
-    const userId = getUserId(req);
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized: User ID missing from token",
-      });
-    }
-    const cart = await cartService.addToCart(userId, {
-      productId,
-      size,
-      quantity,
-    });
-
+    const updatedCart = await cartService.addToCart(userId, { productId, size, quantity });
     return res.status(200).json({
       success: true,
-      message: "Item added to cart",
-      data: cart,
+      message: 'Item added to cart successfully',
+      data: updatedCart,
     });
   } catch (error) {
-    next(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to add item to cart',
+    });
   }
 };
 
-exports.updateQuantity = async (req, res, next) => {
+exports.updateQuantity = async (req, res) => {
   try {
-    const { itemId, quantity } = req.body;
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
 
-    if (!itemId || quantity === undefined) {
+    const { itemId } = req.params;
+    const { quantity } = req.body;
+
+    if (quantity === undefined) {
       return res.status(400).json({
         success: false,
-        message: "itemId and quantity are required fields",
+        message: 'Quantity is required',
       });
     }
 
-    const userId = getUserId(req);
-    const cart = await cartService.updateCartItemQuantity(userId, {
-      itemId,
-      quantity,
-    });
-
+    const updatedCart = await cartService.updateCartItemQuantity(userId, { itemId, quantity });
     return res.status(200).json({
       success: true,
-      message: "Cart updated successfully",
-      data: cart,
+      message: 'Cart updated successfully',
+      data: updatedCart,
     });
   } catch (error) {
-    next(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to update quantity',
+    });
   }
 };
 
-exports.removeItem = async (req, res, next) => {
+exports.removeItem = async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
     const { itemId } = req.params;
-    const userId = getUserId(req);
-    
-    const cart = await cartService.removeCartItem(userId, itemId);
+    const updatedCart = await cartService.removeCartItem(userId, itemId);
 
     return res.status(200).json({
       success: true,
-      message: "Item removed from cart",
-      data: cart,
+      message: 'Item removed from cart successfully',
+      data: updatedCart,
     });
   } catch (error) {
-    next(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to remove item',
+    });
   }
 };
 
-exports.clearCart = async (req, res, next) => {
+exports.clearUserCart = async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
 
-    const cart = await cartService.clearCart(userId);
-
+    const result = await cartService.clearCart(userId);
     return res.status(200).json({
       success: true,
-      message: "Cart cleared successfully",
-      data: cart,
+      message: 'Cart cleared successfully',
+      data: result,
     });
   } catch (error) {
-    next(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to clear cart',
+    });
   }
 };

@@ -1,49 +1,51 @@
-const express = require('express');
-const authRoutes = require('./routes/auth.routes');
-const productRoutes = require('./routes/product.routes');
-const bannerRoutes = require('./routes/banner.routes');
-const promotionRoutes = require('./routes/promotion.routes')
-const categoryRoutes = require("./routes/category.routes")
-const cartRoutes  = require("./routes/cart.routes")
-const cors = require("cors")
+const express = require("express");
+const authRoutes = require("./routes/auth.routes");
+const productRoutes = require("./routes/product.routes");
+const bannerRoutes = require("./routes/banner.routes");
+const promotionRoutes = require("./routes/promotion.routes");
+const categoryRoutes = require("./routes/category.routes");
+const cartRoutes = require("./routes/cart.routes");
+const wishlistRoutes = require("./routes/wishList.routes");
+const cors = require("cors");
 const app = express();
 
 const allowedOrigins = [
-  'http://localhost:3000', // Next.js local dev server
+  "http://localhost:3000", // Next.js local dev server
   // 'https://your-frontend-domain.com' // Production URL (baad ke liye)
 ];
 
-// Production-ready CORS Configuration
+
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow requests with no origin (like Postman or mobile apps)
+    
       if (!origin) return callback(null, true);
-      
+
       if (allowedOrigins.indexOf(origin) === -1) {
-        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+        const msg =
+          "The CORS policy for this site does not allow access from the specified Origin.";
         return callback(new Error(msg), false);
       }
       return callback(null, true);
     },
-    credentials: true, // Cookies ya authorization headers allow karne ke liye
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
+    credentials: true, 
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
 );
 
 app.use(express.json());
 
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/banners', bannerRoutes);
-app.use('/api/promotions',promotionRoutes)
-app.use('/api/categories',categoryRoutes)
-app.use('/api/cart',cartRoutes );
-
+app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/banners", bannerRoutes);
+app.use("/api/promotions", promotionRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/wishlist", wishlistRoutes);
 
 app.use((req, res) => {
-  res.status(404).json({ message: 'API endpoint not found' });
+  res.status(404).json({ message: "API endpoint not found" });
 });
 
 module.exports = app;

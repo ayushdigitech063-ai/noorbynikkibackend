@@ -1,7 +1,6 @@
 const productService = require('../services/product.services');
-const { uploadToCloudinary } = require('../config/cloudinary');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudinary');
 
-// 1. Master List & Filter Endpoint
 exports.getProducts = async (req, res) => {
   try {
     const result = await productService.getProducts(req.query);
@@ -20,7 +19,6 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// 2. Single Product Details (Supports ID or Slug)
 exports.getProductDetails = async (req, res) => {
   try {
     const product = await productService.getProductByIdOrSlug(req.params.identifier);
@@ -36,12 +34,11 @@ exports.getProductDetails = async (req, res) => {
   }
 };
 
-// 3. Create Product (Admin)
 exports.createProduct = async (req, res) => {
+  let uploadedImages = [];
   try {
     const productData = { ...req.body };
 
-    // Parse sizes array if sent as multipart form-data JSON string
     if (typeof productData.sizes === 'string') {
       try {
         productData.sizes = JSON.parse(productData.sizes);
@@ -50,7 +47,6 @@ exports.createProduct = async (req, res) => {
       }
     }
 
-    // Parse tags array if string
     if (typeof productData.tags === 'string') {
       try {
         productData.tags = JSON.parse(productData.tags);
@@ -59,7 +55,6 @@ exports.createProduct = async (req, res) => {
       }
     }
 
-    // Upload images to Cloudinary
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: 'At least one product image is required' });
     }
@@ -67,7 +62,8 @@ exports.createProduct = async (req, res) => {
     const uploadPromises = req.files.map((file) =>
       uploadToCloudinary(file.buffer, 'noorbynikki/products')
     );
-    productData.images = await Promise.all(uploadPromises);
+    uploadedImages = await Promise.all(uploadPromises);
+    productData.images = uploadedImages;
 
     const newProduct = await productService.createProduct(productData);
 
@@ -77,6 +73,9 @@ exports.createProduct = async (req, res) => {
       data: newProduct,
     });
   } catch (error) {
+    if (uploadedImages.length > 0) {
+      await Promise.allSettled(uploadedImages.map((imgUrl) => deleteFromCloudinary(imgUrl)));
+    }
     return res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Failed to create product',
@@ -84,8 +83,8 @@ exports.createProduct = async (req, res) => {
   }
 };
 
-// 4. Update Product (Admin)
 exports.editProduct = async (req, res) => {
+  let uploadedNewImages = [];
   try {
     const updateData = { ...req.body };
 
@@ -105,16 +104,24 @@ exports.editProduct = async (req, res) => {
       }
     }
 
-    // Upload any new images
-    let newImages = [];
+    if (typeof updateData.deletedImages === 'string') {
+      try {
+        updateData.deletedImages = JSON.parse(updateData.deletedImages);
+      } catch {
+        updateData.deletedImages = [updateData.deletedImages];
+      }
+    }
+
+    delete updateData.images;
+
     if (req.files && req.files.length > 0) {
       const uploadPromises = req.files.map((file) =>
         uploadToCloudinary(file.buffer, 'noorbynikki/products')
       );
-      newImages = await Promise.all(uploadPromises);
+      uploadedNewImages = await Promise.all(uploadPromises);
     }
 
-    const updated = await productService.updateProduct(req.params.id, updateData, newImages);
+    const updated = await productService.updateProduct(req.params.id, updateData, uploadedNewImages);
 
     return res.status(200).json({
       success: true,
@@ -122,6 +129,9 @@ exports.editProduct = async (req, res) => {
       data: updated,
     });
   } catch (error) {
+    if (uploadedNewImages.length > 0) {
+      await Promise.allSettled(uploadedNewImages.map((imgUrl) => deleteFromCloudinary(imgUrl)));
+    }
     return res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Failed to update product',
@@ -129,7 +139,6 @@ exports.editProduct = async (req, res) => {
   }
 };
 
-// 5. Delete Product (Admin)
 exports.removeProduct = async (req, res) => {
   try {
     const result = await productService.deleteProduct(req.params.id);

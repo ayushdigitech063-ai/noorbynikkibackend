@@ -4,7 +4,8 @@ const Product = require('../models/product.model');
 const getCartByUserId = async (userId) => {
   let cart = await Cart.findOne({ user: userId }).populate({
     path: 'items.product',
-    select: 'title price discountPrice images sizes totalStock slug',
+    select: 'title price discountPrice images sizes totalStock slug isActive',
+    match: { isActive: true },
   });
 
   if (!cart) {
@@ -12,11 +13,9 @@ const getCartByUserId = async (userId) => {
     return cart;
   }
 
-  // Edge-case fix: Agar koi product admin ne delete kar diya ho, use cart se safely filter karein
   const originalCount = cart.items.length;
   cart.items = cart.items.filter((item) => item.product !== null);
 
-  // Agar deleted items remove hue hain, to DB update karein
   if (cart.items.length !== originalCount) {
     await cart.save();
   }
@@ -32,9 +31,9 @@ const addToCart = async (userId, { productId, size, quantity = 1 }) => {
     throw error;
   }
 
-  const product = await Product.findById(productId);
+  const product = await Product.findOne({ _id: productId, isActive: true });
   if (!product) {
-    const error = new Error('Product not found');
+    const error = new Error('Product not found or currently unavailable');
     error.statusCode = 404;
     throw error;
   }
@@ -113,13 +112,12 @@ const updateCartItemQuantity = async (userId, { itemId, quantity }) => {
     cart.items.splice(itemIndex, 1);
   } else {
     const targetItem = cart.items[itemIndex];
-    const product = await Product.findById(targetItem.product);
+    const product = await Product.findOne({ _id: targetItem.product, isActive: true });
 
     if (!product) {
-      // Agar product remove ho chuka hai, to cart se bhi hata dein
       cart.items.splice(itemIndex, 1);
       await cart.save();
-      const error = new Error('Product no longer exists and has been removed from cart');
+      const error = new Error('Product is no longer available and has been removed from cart');
       error.statusCode = 404;
       throw error;
     }
@@ -153,9 +151,16 @@ const removeCartItem = async (userId, itemId) => {
     throw error;
   }
 
+  const initialLength = cart.items.length;
   cart.items = cart.items.filter(
     (item) => item._id.toString() !== itemId.toString()
   );
+
+  if (cart.items.length === initialLength) {
+    const error = new Error('Item not found in cart');
+    error.statusCode = 404;
+    throw error;
+  }
 
   await cart.save();
   return await getCartByUserId(userId);
