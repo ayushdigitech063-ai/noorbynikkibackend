@@ -16,6 +16,7 @@ const getProducts = async (queryParams) => {
     minPrice,
     maxPrice,
     isFeatured,
+    featuredBadge,
     isFestivalOffer,
     sort,
     page = 1,
@@ -101,6 +102,9 @@ const getProducts = async (queryParams) => {
 
   if (isFeatured !== undefined) {
     conditions.push({ isFeatured: isFeatured === 'true' || isFeatured === true });
+  }
+  if (featuredBadge && featuredBadge.trim()) {
+    conditions.push({ featuredBadge: featuredBadge.toUpperCase().trim() });
   }
   if (isFestivalOffer !== undefined) {
     conditions.push({ isFestivalOffer: isFestivalOffer === 'true' || isFestivalOffer === true });
@@ -259,10 +263,33 @@ const deleteProduct = async (id) => {
   return { message: 'Product deactivated successfully' };
 };
 
+const getFeaturedMasterpieces = async () => {
+  const badges = ['EXCLUSIVE', 'TRENDING', 'FESTIVE', 'BESTSELLER'];
+
+  // Har badge ka strictly ek-ek latest active product fetch hoga
+  const showcaseProducts = await Promise.all(
+    badges.map(async (badge) => {
+      return await Product.findOne({
+        isActive: true,
+        isFeatured: true,
+        featuredBadge: badge,
+      })
+        .select('title slug images price category featuredBadge')
+        .populate('category', 'name slug')
+        .sort({ createdAt: -1 })
+        .lean();
+    })
+  );
+
+  // Null values ko filter out karke return karein
+  return showcaseProducts.filter(Boolean);
+};
+
 module.exports = {
   getProducts,
   getProductByIdOrSlug,
   createProduct,
   updateProduct,
   deleteProduct,
+getFeaturedMasterpieces
 };

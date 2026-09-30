@@ -6,6 +6,7 @@ const promotionRoutes = require("./routes/promotion.routes");
 const categoryRoutes = require("./routes/category.routes");
 const cartRoutes = require("./routes/cart.routes");
 const wishlistRoutes = require("./routes/wishList.routes");
+const editorialRoutes = require('./routes/editorial.routes');
 const cors = require("cors");
 const app = express();
 
@@ -43,6 +44,7 @@ app.use("/api/promotions", promotionRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
+app.use('/api/editorial', editorialRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ message: "API endpoint not found" });

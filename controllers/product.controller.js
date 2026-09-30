@@ -55,6 +55,15 @@ exports.createProduct = async (req, res) => {
       }
     }
 
+    if (productData.isFeatured !== undefined) {
+  productData.isFeatured =
+    productData.isFeatured === 'true' || productData.isFeatured === true;
+}
+
+if (productData.featuredBadge) {
+  productData.featuredBadge = productData.featuredBadge.toUpperCase().trim();
+}
+
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: 'At least one product image is required' });
     }
@@ -103,6 +112,14 @@ exports.editProduct = async (req, res) => {
         updateData.tags = updateData.tags.split(',').map((t) => t.trim());
       }
     }
+    if (updateData.isFeatured !== undefined) {
+  updateData.isFeatured =
+    updateData.isFeatured === 'true' || updateData.isFeatured === true;
+}
+
+if (updateData.featuredBadge) {
+  updateData.featuredBadge = updateData.featuredBadge.toUpperCase().trim();
+}
 
     if (typeof updateData.deletedImages === 'string') {
       try {
@@ -150,6 +167,24 @@ exports.removeProduct = async (req, res) => {
     return res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Failed to delete product',
+    });
+  }
+};
+
+exports.getFeaturedMasterpieces = async (req, res) => {
+  try {
+    const products = await productService.getFeaturedMasterpieces();
+
+    return res.status(200).json({
+      success: true,
+      count: products.length,
+      data: products,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch featured masterpieces',
+      error: error.message,
     });
   }
 };

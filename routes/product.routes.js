@@ -12,7 +12,9 @@ const { protect, authorize } = require('../middlewares/auth.middleware');
 
 // Public Listing & Single Product Details
 router.get('/', productController.getProducts);
+router.get('/featured-masterpieces', productController.getFeaturedMasterpieces);
 router.get('/:identifier', productController.getProductDetails);
+
 
 // Admin Protected Actions
 router.post(

@@ -31,6 +31,9 @@ const addToCart = async (userId, { productId, size, quantity = 1 }) => {
     throw error;
   }
 
+  // Safe size clean
+  const cleanSize = String(size || '').trim().toUpperCase();
+
   const product = await Product.findOne({ _id: productId, isActive: true });
   if (!product) {
     const error = new Error('Product not found or currently unavailable');
@@ -39,7 +42,7 @@ const addToCart = async (userId, { productId, size, quantity = 1 }) => {
   }
 
   const targetVariant = product.sizes.find(
-    (item) => item.size.toUpperCase() === size.toUpperCase()
+    (item) => String(item.size).trim().toUpperCase() === cleanSize
   );
 
   if (!targetVariant) {
@@ -53,11 +56,16 @@ const addToCart = async (userId, { productId, size, quantity = 1 }) => {
     cart = new Cart({ user: userId, items: [] });
   }
 
-  const existingItemIndex = cart.items.findIndex(
-    (item) =>
-      item.product.toString() === productId.toString() &&
-      item.size.toUpperCase() === size.toUpperCase()
-  );
+  // ✅ SAFE COMPARISON: Handles both populated object and plain ObjectId
+  const existingItemIndex = cart.items.findIndex((item) => {
+    const existingProdId = item.product?._id
+      ? item.product._id.toString()
+      : item.product.toString();
+
+    const existingSize = String(item.size || '').trim().toUpperCase();
+
+    return existingProdId === productId.toString() && existingSize === cleanSize;
+  });
 
   const existingQty = existingItemIndex > -1 ? cart.items[existingItemIndex].quantity : 0;
   const newTotalQty = existingQty + parsedQty;
@@ -78,7 +86,7 @@ const addToCart = async (userId, { productId, size, quantity = 1 }) => {
   } else {
     cart.items.push({
       product: productId,
-      size: size.toUpperCase(),
+      size: cleanSize,
       quantity: parsedQty,
       price: effectivePrice,
     });

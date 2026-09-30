@@ -105,11 +105,20 @@ const productSchema = new mongoose.Schema(
     isFeatured: {
       type: Boolean,
       default: false,
+      index: true,
     },
     isFestivalOffer: {
       type: Boolean,
       default: false,
     },
+
+  featuredBadge: {
+  type: String,
+  enum: ['EXCLUSIVE', 'TRENDING', 'FESTIVE', 'BESTSELLER'],
+  default: 'EXCLUSIVE',
+  uppercase: true,
+  trim: true,
+},
    
 isActive: {
   type: Boolean,
