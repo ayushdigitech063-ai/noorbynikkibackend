@@ -4,7 +4,7 @@ const bannerSchema = new mongoose.Schema(
   {
     position: {
       type: String,
-      enum: ['hero', 'festival'],
+      enum: ['hero', 'festival','collection','shop new latest','contact'],
       default: 'hero',
       required: true,
     },
