@@ -1,23 +1,15 @@
-// controllers/product.controller.js
-
-const { uploadToCloudinary } = require('../config/cloudinary');
-const {
-  getAllProducts,
-  getProductByIdOrSlug,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-} = require('../services/product.services');
-const Product = require("../models/product.model")
+const productService = require('../services/product.services');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudinary');
 
 exports.getProducts = async (req, res) => {
   try {
-    const { products, meta } = await getAllProducts(req.query);
+    const result = await productService.getProducts(req.query);
     return res.status(200).json({
       success: true,
-      message: 'Products fetched successfully',
-      data: products,
-      meta,
+      total: result.total,
+      page: result.page,
+      pages: result.pages,
+      data: result.data,
     });
   } catch (error) {
     return res.status(error.statusCode || 500).json({
@@ -27,10 +19,9 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-
 exports.getProductDetails = async (req, res) => {
   try {
-    const product = await getProductByIdOrSlug(req.params.identifier);
+    const product = await productService.getProductByIdOrSlug(req.params.identifier);
     return res.status(200).json({
       success: true,
       data: product,
@@ -43,154 +34,111 @@ exports.getProductDetails = async (req, res) => {
   }
 };
 
-exports.addProduct = async (req, res, next) => {
+exports.createProduct = async (req, res) => {
+  let uploadedImages = [];
   try {
-    const { name, description, price, category } = req.body;
+    const productData = { ...req.body };
 
-    if (!name || !description || !price || !category) {
-      return res.status(400).json({
-        success: false,
-        message: 'Name, description, price, and category are required',
-      });
-    }
-    let parsedSizes = [];
-    if (req.body.sizes) {
-      if (typeof req.body.sizes === 'string') {
-        try {
-          parsedSizes = JSON.parse(req.body.sizes);
-        } catch (e) {
-          return res.status(400).json({
-            success: false,
-            message: 'Sizes must be a valid JSON array like [{"size":"M","stock":15}]',
-          });
-        }
-      } else if (Array.isArray(req.body.sizes)) {
-        parsedSizes = req.body.sizes;
+    if (typeof productData.sizes === 'string') {
+      try {
+        productData.sizes = JSON.parse(productData.sizes);
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid JSON format in sizes' });
       }
     }
 
-    if (!parsedSizes || parsedSizes.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide at least one size with its stock',
-      });
+    if (typeof productData.tags === 'string') {
+      try {
+        productData.tags = JSON.parse(productData.tags);
+      } catch {
+        productData.tags = productData.tags.split(',').map((t) => t.trim());
+      }
     }
-    parsedSizes = parsedSizes.map((item) => ({
-      size: item.size,
-      stock: Number(item.stock) || 0,
-    }));
 
-    const totalCalculatedStock = parsedSizes.reduce(
-      (sum, item) => sum + item.stock,
-      0
+    if (productData.isFeatured !== undefined) {
+  productData.isFeatured =
+    productData.isFeatured === 'true' || productData.isFeatured === true;
+}
+
+if (productData.featuredBadge) {
+  productData.featuredBadge = productData.featuredBadge.toUpperCase().trim();
+}
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one product image is required' });
+    }
+
+    const uploadPromises = req.files.map((file) =>
+      uploadToCloudinary(file.buffer, 'noorbynikki/products')
     );
+    uploadedImages = await Promise.all(uploadPromises);
+    productData.images = uploadedImages;
 
-    let imageUrls = [];
-
-    if (req.files && req.files.length > 0) {
-      const uploadPromises = req.files.map((file) =>
-        uploadToCloudinary(file.buffer, 'noorbynikki/products')
-      );
-      imageUrls = await Promise.all(uploadPromises);
-    } else if (req.body.images) {
-      imageUrls = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
-    }
-
-    if (imageUrls.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please upload at least one product image',
-      });
-    }
-
-    const productData = {
-      ...req.body,
-      sizes: parsedSizes,
-      stock: totalCalculatedStock,
-      images: imageUrls,
-    };
-
-    const product = await createProduct(productData);
+    const newProduct = await productService.createProduct(productData);
 
     return res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      data: product,
+      data: newProduct,
     });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
+    if (uploadedImages.length > 0) {
+      await Promise.allSettled(uploadedImages.map((imgUrl) => deleteFromCloudinary(imgUrl)));
+    }
+    return res.status(error.statusCode || 400).json({
       success: false,
-      message: error.message || 'Internal server error',
+      message: error.message || 'Failed to create product',
     });
   }
 };
+
 exports.editProduct = async (req, res) => {
+  let uploadedNewImages = [];
   try {
     const updateData = { ...req.body };
 
-    // 1. SIZES HANDLING & PARSING
-    if (updateData.sizes) {
-      let parsedSizes = [];
-
-      if (typeof updateData.sizes === 'string') {
-        try {
-          parsedSizes = JSON.parse(updateData.sizes);
-        } catch (err1) {
-          try {
-            const sanitizedString = updateData.sizes.replace(/'/g, '"');
-            parsedSizes = JSON.parse(sanitizedString);
-          } catch (err2) {
-            return res.status(400).json({
-              success: false,
-              message: 'Sizes must be a valid JSON array like [{"size":"M","stock":15}]',
-            });
-          }
-        }
-      } else if (Array.isArray(updateData.sizes)) {
-        parsedSizes = updateData.sizes;
+    if (typeof updateData.sizes === 'string') {
+      try {
+        updateData.sizes = JSON.parse(updateData.sizes);
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid JSON format in sizes' });
       }
-
-      parsedSizes = parsedSizes.map((item) => ({
-        size: item.size,
-        stock: Number(item.stock) || 0,
-      }));
-
-      updateData.sizes = parsedSizes;
-
-      updateData.stock = parsedSizes.reduce(
-        (sum, item) => sum + item.stock,
-        0
-      );
     }
 
-    if (req.files && req.files.length > 0) {
+    if (typeof updateData.tags === 'string') {
+      try {
+        updateData.tags = JSON.parse(updateData.tags);
+      } catch {
+        updateData.tags = updateData.tags.split(',').map((t) => t.trim());
+      }
+    }
+    if (updateData.isFeatured !== undefined) {
+  updateData.isFeatured =
+    updateData.isFeatured === 'true' || updateData.isFeatured === true;
+}
 
+if (updateData.featuredBadge) {
+  updateData.featuredBadge = updateData.featuredBadge.toUpperCase().trim();
+}
+
+    if (typeof updateData.deletedImages === 'string') {
+      try {
+        updateData.deletedImages = JSON.parse(updateData.deletedImages);
+      } catch {
+        updateData.deletedImages = [updateData.deletedImages];
+      }
+    }
+
+    delete updateData.images;
+
+    if (req.files && req.files.length > 0) {
       const uploadPromises = req.files.map((file) =>
         uploadToCloudinary(file.buffer, 'noorbynikki/products')
       );
-      const newImageUrls = await Promise.all(uploadPromises);
-
- 
-      const currentProduct = await Product.findById(req.params.id);
-      const dbOldImages = currentProduct ? currentProduct.images : [];
-
-      updateData.images = [...dbOldImages, ...newImageUrls];
-    } else {
-      
-      if (req.body.existingImages) {
-        try {
-          const parsed = JSON.parse(req.body.existingImages);
-          updateData.images = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          updateData.images = Array.isArray(req.body.existingImages)
-            ? req.body.existingImages
-            : [req.body.existingImages];
-        }
-      }
+      uploadedNewImages = await Promise.all(uploadPromises);
     }
 
-  
-    const updated = await updateProduct(req.params.id, updateData);
+    const updated = await productService.updateProduct(req.params.id, updateData, uploadedNewImages);
 
     return res.status(200).json({
       success: true,
@@ -198,25 +146,45 @@ exports.editProduct = async (req, res) => {
       data: updated,
     });
   } catch (error) {
-    console.error('EditProduct Error:', error);
+    if (uploadedNewImages.length > 0) {
+      await Promise.allSettled(uploadedNewImages.map((imgUrl) => deleteFromCloudinary(imgUrl)));
+    }
     return res.status(error.statusCode || 400).json({
       success: false,
-      message: error.message || 'Internal server error',
+      message: error.message || 'Failed to update product',
     });
   }
 };
 
 exports.removeProduct = async (req, res) => {
   try {
-    await deleteProduct(req.params.id);
+    const result = await productService.deleteProduct(req.params.id);
     return res.status(200).json({
       success: true,
-      message: 'Product deleted successfully',
+      message: result.message,
     });
   } catch (error) {
     return res.status(error.statusCode || 400).json({
       success: false,
-      message: error.message || 'Internal server error',
+      message: error.message || 'Failed to delete product',
+    });
+  }
+};
+
+exports.getFeaturedMasterpieces = async (req, res) => {
+  try {
+    const products = await productService.getFeaturedMasterpieces();
+
+    return res.status(200).json({
+      success: true,
+      count: products.length,
+      data: products,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch featured masterpieces',
+      error: error.message,
     });
   }
 };

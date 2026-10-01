@@ -23,5 +23,27 @@ const uploadToCloudinary = (fileBuffer, folder = 'products') => {
     uploadStream.end(fileBuffer);
   });
 };
+const deleteFromCloudinary = async (imageUrl) => {
+  try {
+    if (!imageUrl) return;
 
-module.exports = { cloudinary, uploadToCloudinary };
+    
+    const urlParts = imageUrl.split('/');
+    const fileNameWithExt = urlParts.pop();
+    const fileName = fileNameWithExt.split('.')[0];
+
+    
+    const uploadIndex = urlParts.indexOf('upload');
+    const folderPath = urlParts.slice(uploadIndex + 2).join('/');
+
+    const publicId = folderPath ? `${folderPath}/${fileName}` : fileName;
+
+    await cloudinary.uploader.destroy(publicId);
+  } catch (error) {
+    console.error('Cloudinary asset deletion error:', error.message);
+  }
+};
+
+
+
+module.exports = { cloudinary, uploadToCloudinary,deleteFromCloudinary };
